@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types = 1);
 
 namespace SSSS;
 
@@ -11,37 +11,37 @@ class Scheme
         $this->p = $p;
     }
 
-    function initialShares(\GMP $secret, $k, $n)
+    function initialShares(\GMP $secret, int $requiredShares, int $initialShares): array
     {
         $pMinus1 = $this->p - 1;
 
         $shares = [];
         $coefficients = [$secret];
 
-        for ($i = 1; $i < $k; $i++) {
-            $coefficients[$i] = gmp_random_range(0, $pMinus1);
+        for ($shareNumber = 1; $shareNumber < $requiredShares; $shareNumber++) {
+            $coefficients[$shareNumber] = gmp_random_range(0, $pMinus1);
         }
 
-        for($i = 1; $i <= $n; $i++) {
-            $shares[$i] = $this->generateShare($i, $coefficients);
+        for($shareNumber = 1; $shareNumber <= $initialShares; $shareNumber++) {
+            $shares[$shareNumber] = $this->generateShare($shareNumber, $coefficients);
         }
 
         return $shares;
     }
 
-    private function generateShare($i, array $coefficients)
+    private function generateShare(int $shareNumber, array $coefficients): \GMP
     {
         $share = $coefficients[0]; // coefficient for exponent 0 is the secret
         $numCoefficients = count($coefficients);
 
-        for ($exp = 1; $exp < $numCoefficients; $exp++) {
-            $share = ($share + ($coefficients[$exp] * ($i ** $exp))) % $this->p;
+        for ($exponent = 1; $exponent < $numCoefficients; $exponent++) {
+            $share = ($share + ($coefficients[$exponent] * ($shareNumber ** $exponent))) % $this->p;
         }
 
         return $share;
     }
 
-    function recoverSecret(array $shares)
+    function recoverSecret(array $shares): \GMP
     {
         $secret = 0;
 
@@ -65,27 +65,27 @@ class Scheme
         return $secret;
     }
 
-    function addShare($i, array $shares)
+    function addShare(int $shareNumber, array $shares): \GMP
     {
         $polynomials  = $this->generatePolynomials($shares);
         $polynomials  = $this->expandPolynomials($polynomials);
         $coefficients = $this->reducePolynomials($polynomials);
 
-        return $this->generateShare($i, $coefficients);
+        return $this->generateShare($shareNumber, $coefficients);
     }
 
-    private function generatePolynomials(array $shares): array
+    private function generatePolynomials(array $points): array
     {
         $polynomials = [];
 
-        foreach ($shares as $xA => $yA) {
+        foreach ($points as $xA => $yA) {
             $obj = new \stdClass();
             $obj->x = $xA;
             $obj->y = $yA;
             $obj->numerators = [];
             $obj->denominator = 1;
 
-            foreach ($shares as $xB => $yB) {
+            foreach ($points as $xB => $yB) {
                 if($xA == $xB) {
                     continue;
                 }
@@ -100,9 +100,9 @@ class Scheme
         return $polynomials;
     }
 
-    private function expandPolynomials(array $poly): array
+    private function expandPolynomials(array $polynomials): array
     {
-        foreach ($poly as $obj) {
+        foreach ($polynomials as $obj) {
             $numNumerators = count($obj->numerators);
             $obj->expanded = [$numNumerators => 1];
             $stack = [[1, 0, $numNumerators - 1]];
@@ -120,14 +120,14 @@ class Scheme
             } while ($sp >= 0);
         }
 
-        return $poly;
+        return $polynomials;
     }
 
-    private function reducePolynomials(array $poly): array
+    private function reducePolynomials(array $polynomials): array
     {
         $result = [];
 
-        foreach ($poly as $obj) {
+        foreach ($polynomials as $obj) {
             foreach ($obj->expanded as $k => $v) {
                 $result[$k] = (($result[$k] ?? 0) + $this->p + ($obj->y * $v * gmp_invert($obj->denominator, $this->p))) % $this->p;
             }
