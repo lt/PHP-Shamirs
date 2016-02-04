@@ -8,11 +8,31 @@ class Scheme
 
     function __construct(\GMP $p)
     {
+        if (!gmp_prob_prime($p, 20)) {
+            throw new \InvalidArgumentException('p must be prime.');
+        }
+        
         $this->p = $p;
     }
 
     function initialShares(\GMP $secret, int $requiredShares, int $initialShares): array
     {
+        if ($requiredShares < 0) {
+            throw new \InvalidArgumentException('Required shares must be greater than zero.');
+        }
+
+        if ($requiredShares > $initialShares) {
+            throw new \InvalidArgumentException('Required shares must be less than or equal to initial shares.');
+        }
+
+        if ($initialShares >= $this->p) {
+            throw new \InvalidArgumentException('Initial shares must be less than P');
+        }
+
+        if ($secret >= $this->p) {
+            throw new \InvalidArgumentException('The value of the secret must be less than P');
+        }
+
         $pMinus1 = $this->p - 1;
 
         $shares = [];
@@ -29,7 +49,7 @@ class Scheme
         return $shares;
     }
 
-    private function generateShare(int $shareNumber, array $coefficients): \GMP
+    private function generateShare(int $shareNumber, array $coefficients): Share
     {
         $share = $coefficients[0]; // coefficient for exponent 0 is the secret
         $numCoefficients = count($coefficients);
@@ -38,101 +58,31 @@ class Scheme
             $share = ($share + ($coefficients[$exponent] * ($shareNumber ** $exponent))) % $this->p;
         }
 
-        return $share;
+        return new Share($shareNumber, $share);
+    }
+
+    private function validateArrayOfShares(array $shares)
+    {
+        array_walk($shares, function($share) {
+            if (!$share instanceof Share) {
+                throw new \InvalidArgumentException('Shares must be an array of Share objects.');
+            }
+        });
     }
 
     function recoverSecret(array $shares): \GMP
     {
-        $secret = 0;
+        $this->validateArrayOfShares($shares);
 
-        // Fast lagrange to recover free coefficient only
-        foreach ($shares as $xA => $yA) {
-            $numerator = 1;
-            $denominator = 1;
-
-            foreach ($shares as $xB => $yB) {
-                if($xA == $xB) {
-                    continue;
-                }
-
-                $numerator = ($numerator * -$xB) % $this->p;
-                $denominator = ($denominator * ($xA - $xB)) % $this->p;
-            }
-
-            $secret = ($secret + $this->p + ($yA * $numerator * gmp_invert($denominator, $this->p))) % $this->p;
-        }
-
-        return $secret;
+        return FiniteFieldLagrange::recoverFreeCoefficient($this->p, $shares);
     }
 
-    function addShare(int $shareNumber, array $shares): \GMP
+    function addShare(int $shareNumber, array $shares): Share
     {
-        $polynomials  = $this->generatePolynomials($shares);
-        $polynomials  = $this->expandPolynomials($polynomials);
-        $coefficients = $this->reducePolynomials($polynomials);
+        $this->validateArrayOfShares($shares);
+
+        $coefficients = FiniteFieldLagrange::recoverCoefficients($this->p, $shares);
 
         return $this->generateShare($shareNumber, $coefficients);
-    }
-
-    private function generatePolynomials(array $points): array
-    {
-        $polynomials = [];
-
-        foreach ($points as $xA => $yA) {
-            $obj = new \stdClass();
-            $obj->x = $xA;
-            $obj->y = $yA;
-            $obj->numerators = [];
-            $obj->denominator = 1;
-
-            foreach ($points as $xB => $yB) {
-                if($xA == $xB) {
-                    continue;
-                }
-
-                $obj->numerators[] = -$xB;
-                $obj->denominator *= ($obj->x - $xB);
-            }
-
-            $polynomials[] = $obj;
-        }
-
-        return $polynomials;
-    }
-
-    private function expandPolynomials(array $polynomials): array
-    {
-        foreach ($polynomials as $obj) {
-            $numNumerators = count($obj->numerators);
-            $obj->expanded = [$numNumerators => 1];
-            $stack = [[1, 0, $numNumerators - 1]];
-            $sp = 0;
-
-            do {
-                list($base, $index, $depth) = $stack[$sp--];
-
-                while ($index < $numNumerators) {
-                    $numerator = $obj->numerators[$index] * $base;
-                    $obj->expanded[$depth] = ($obj->expanded[$depth] ?? 0) + $numerator;
-
-                    $stack[++$sp] = [$numerator, ++$index, $depth - 1];
-                }
-            } while ($sp >= 0);
-        }
-
-        return $polynomials;
-    }
-
-    private function reducePolynomials(array $polynomials): array
-    {
-        $result = [];
-
-        foreach ($polynomials as $obj) {
-            foreach ($obj->expanded as $k => $v) {
-                $result[$k] = (($result[$k] ?? 0) + $this->p + ($obj->y * $v * gmp_invert($obj->denominator, $this->p))) % $this->p;
-            }
-        }
-
-        return $result;
     }
 }
