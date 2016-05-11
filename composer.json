@@ -1,0 +1,26 @@
+{
+  "name": "leigh/ssss",
+  "homepage": "https://github.com/lt/PHP-Shamirs",
+  "description": "Pure PHP implementation of Shamir's Secret Sharing Scheme",
+  "authors": [
+    {
+      "name": "Leigh T",
+      "homepage": "https://github.com/lt"
+    }
+  ],
+  "keywords": [
+    "secret",
+    "sharing",
+    "security"
+  ],
+  "license": "MIT",
+  "require": {
+    "php": ">=7.0",
+    "ext-gmp": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "SSSS\\": "lib"
+    }
+  }
+}
